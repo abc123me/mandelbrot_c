@@ -1,0 +1,4 @@
+{
+  "name": "Mandelbrot C",
+  "files": [ { "directory": "~/Programming/mandelbrot_c", "filters": ["*.cpp", "*.h", "Makefile"], "recursive": 1 } ]
+} 
