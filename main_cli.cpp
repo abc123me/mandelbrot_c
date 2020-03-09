@@ -7,26 +7,29 @@
 #include "cli_gfx.h"
 #include "util.h"
 
-uint8_t force_color_mode = 0;
-uint8_t force_2xh = 0;
+uint8_t force_color_mode = 0; // 0 bit color means ignore
+uint8_t force_2xh = 0;        // Bit 0 is mode, bit 1 is enable
 
 void print_cli_help() {
         puts("\t--24bit/-e: Force use of 24 bit ANSI mode");
-        puts("\t--3bit: Force use of 3 bit ANSI mode (default)");
+        puts("\t--3bit/-3: Force use of 3 bit ANSI mode (default)");
         puts("\t--no-color/-g: Disable ANSI colors");
         puts("\t--2h/-d: Use double height technique (needs unicode)");
+        puts("\t--1h/-s: Don't use double height technique (needs unicode)");
 }
 void cli_parse(uint16_t i, uint16_t cnt, char** args) {
+	puts("cli_parse");
 	CHECK_ARG(i, args, "--24bit", "-e",    { force_color_mode = 24; return; });
 	CHECK_ARG(i, args, "--np-color", "-g", { force_color_mode = 1; return; });
-	CHECK_ARG(i, args, "--3bit", NULL,     { force_color_mode = 3; return; });
-	CHECK_ARG(i, args, "--2h", "-d",       { force_2xh = 1; return; });
+	CHECK_ARG(i, args, "--3bit", "-3",     { force_color_mode = 3; return; });
+	CHECK_ARG(i, args, "--2h", "-d",       { force_2xh = 3; return; });
+	CHECK_ARG(i, args, "--1h", "-s",       { force_2xh = 2; return; });
 }
 int8_t main_cli(Context* ctx) {
 	mb_opts opts;
 	CliGfxCtx gfx = CliGfxCtx();
 	puts("Initializing ANSI graphics");
-	gfx.init();
+	gfx.init(force_color_mode, force_2xh);
 	uint16_t w = gfx.width(), h = gfx.height();
 	printf("Termianl size is: %dx%d\n", w, h);
 	printf("%s\n%s\n", gfx.name(), gfx.type());

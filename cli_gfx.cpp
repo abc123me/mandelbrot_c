@@ -16,12 +16,16 @@ CliGfxCtx::CliGfxCtx() {
 CliGfxCtx::~CliGfxCtx() {
 	free(type_str);
 }
-int8_t CliGfxCtx::init() {
+int8_t CliGfxCtx::init(uint8_t force_color, uint8_t force_double) {
 	char* term = getenv("TERM");
 	if(str_startswith(term, "xterm")) {
 		color_bits = 24;
 		double_h = 1;
 	}
+	if(force_double & 2)
+		double_h = force_double & 1;
+	if(force_color)
+		color_bits = force_color;
 	snprintf(type_str, type_len, "Linux \"%s\", %d bit color", term, color_bits);
 	int8_t out = ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
 	w = size.ws_col; h = size.ws_row;
@@ -44,7 +48,7 @@ void CliGfxCtx::set(uint16_t x, uint16_t y, Color color) {
 	}
 	printf("\x1b[%d;%df", y, x);
 	if(color_bits == 24) printf("\x1b[%d8;2;%d;%d;%dm%s", sty, color.r, color.g, color.b, str);
-	else printf("\x1b[1;%d%dm%s", sty, color.to3bit(), str);
+	else if(color_bits == 3) printf("\x1b[1;%d%dm%s", sty, color.to3bit(), str);
 }
 void CliGfxCtx::clear() {
 	printf("\x1b[0;\x1b[2J\x1b[0;0f");

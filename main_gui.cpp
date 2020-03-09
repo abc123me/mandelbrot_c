@@ -164,9 +164,9 @@ void draw() {
 		glVertex2f(x, v->y + v->h);
 		glEnd();
 	}
-	
+
 	draw_stats();
-	
+
 	glfwSwapBuffers(win);
 }
 

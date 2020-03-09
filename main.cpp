@@ -26,6 +26,8 @@ int main(int argc, char** argv) {
 			ctx.mode = MODE_CLI;
 		}
 	}
+	if(ctx.mode == MODE_GUI) func = gui_parse;
+	if(ctx.mode == MODE_CLI) func = cli_parse;
 	if(func) for(uint16_t i = 1; i < argc; i++)
 		if(argv[i]) func(i, argc, argv);
 	if(ctx.mode == MODE_GUI) return main_gui(&ctx);

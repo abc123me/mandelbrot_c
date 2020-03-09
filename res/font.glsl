@@ -22,5 +22,5 @@ uniform vec3 textColor;
 
 void main() {
 	vec4 s = vec4(1, 1, 1, texture(text, texc).r);
-	color = vec4(textColor, 1) * s;
+	color = vec4(1, 1, 1, 1); //vec4(textColor, 1) * s;
 }

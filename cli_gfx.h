@@ -19,7 +19,7 @@ private:
 public:
 	CliGfxCtx();
 	~CliGfxCtx();
-	int8_t init();
+	int8_t init(uint8_t force_color, uint8_t force_double);
 	uint16_t width();
 	uint16_t height();
 	char* type();
