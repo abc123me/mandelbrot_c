@@ -13,15 +13,6 @@ enum ShaderType{
 };
 char* ShaderType_tostr(ShaderType st);
 
-struct CompiledShader{
-private:
-	GLuint id;
-public:
-	CompiledShader(GLuint id);
-	~CompiledShader();
-	uint32_t getID(){ return id; }
-};
-
 struct ShaderSourceElement{
 	char* start;
 	char* stop;
@@ -31,7 +22,7 @@ struct ShaderSourceElement{
 	inline static ShaderType typeFromString(char* str) { return typeFromString(str, strlen(str)); };
 	static ShaderType typeFromString(char* str, uint32_t len);
 	inline uint32_t length(){ return stop - start; }
-	CompiledShader compile();
+	GLint compile();
 };
 struct UniformCacheEntry{
 	char* uniformName;
@@ -53,7 +44,7 @@ public:
 	~ShaderSource();
 	void printElements();
 	void destroy();
-	CompiledShader getShaderFromSource(ShaderType type);
+	GLint getShaderFromSource(ShaderType type);
 };
 class Shader{
 private:
@@ -66,15 +57,28 @@ public:
 	~Shader();
 	void bind();
 	void unbind();
-	void attach(CompiledShader& s);
-	void attachAll(uint8_t length, CompiledShader* s);
+	void attach(GLint id);
 	inline uint8_t linkAndValidate() { return link() && validate(); };
 	uint8_t link();
 	uint8_t validate();
 	uint16_t cleanupUniformCache(uint16_t minUses);
-	template<typename T> void setUniform(char* name, T obj);
-	void setUniform2f(char* name, float x, float y);
-	void setUniform3f(char* name, float x, float y, float z);
-	void setUniform4f(char* name, float x, float y, float z, float w);
+	
+	void setUniform1f(char* name, GLfloat x);
+	void setUniform2f(char* name, GLfloat x, GLfloat y);
+	void setUniform3f(char* name, GLfloat x, GLfloat y, GLfloat z);
+	void setUniform4f(char* name, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
+	void setUniform1d(char* name, GLdouble x);
+	void setUniform2d(char* name, GLdouble x, GLdouble y);
+	void setUniform3d(char* name, GLdouble x, GLdouble y, GLdouble z);
+	void setUniform4d(char* name, GLdouble x, GLdouble y, GLdouble z, GLdouble w);
+	void setUniform1i(char* name, GLint x);
+	void setUniform2i(char* name, GLint x, GLint y);
+	void setUniform3i(char* name, GLint x, GLint y, GLint z);
+	void setUniform4i(char* name, GLint x, GLint y, GLint z, GLint w);
+	void setUniform1ui(char* name, GLuint x);
+	void setUniform2ui(char* name, GLuint x, GLuint y);
+	void setUniform3ui(char* name, GLuint x, GLuint y, GLuint z);
+	void setUniform4ui(char* name, GLuint x, GLuint y, GLuint z, GLuint w);
+	
 	void setUniformMat4x4f(char* name, GLboolean transpose, GLfloat* dat);
 };

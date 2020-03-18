@@ -37,12 +37,8 @@ void Shader::printError(char* action){
 	printf("Shader failed to %s, reason: %s!\n", action, reason);
 	delete[] reason;
 }
-void Shader::attach(CompiledShader& s){
-	GL_CALL(glAttachShader(id, s.getID()));
-}
-void Shader::attachAll(uint8_t length, CompiledShader* s){
-	for(uint8_t i = 0; i < length; i++)
-		this->attach(s[i]);
+void Shader::attach(GLint s){
+	GL_CALL(glAttachShader(id, s));
 }
 uint8_t Shader::link(){
 	GL_CALL(glLinkProgram(id));
@@ -83,38 +79,84 @@ uint16_t Shader::cleanupUniformCache(uint16_t minUses){
 	uniformCache = newShaderCache;
 	return removed;
 }
-void Shader::setUniform4f(char* name, float x, float y, float z, float w){
+
+//setUniform GLfloat
+void Shader::setUniform4f(char* name, GLfloat x, GLfloat y, GLfloat z, GLfloat w){
 	this->bind();
 	GL_CALL(glUniform4f(getUniformLocation(name), x, y, z, w));
 }
-void Shader::setUniform3f(char* name, float x, float y, float z){
+void Shader::setUniform3f(char* name, GLfloat x, GLfloat y, GLfloat z){
 	this->bind();
 	GL_CALL(glUniform3f(getUniformLocation(name), x, y, z));
 }
-void Shader::setUniform2f(char* name, float x, float y){
+void Shader::setUniform2f(char* name, GLfloat x, GLfloat y){
 	this->bind();
 	GL_CALL(glUniform2f(getUniformLocation(name), x, y));
 }
+void Shader::setUniform1f(char* name, GLfloat v){
+	this->bind();
+	GL_CALL(glUniform1f(getUniformLocation(name), v));
+}
+
+//setUniform GLdouble
+void Shader::setUniform4d(char* name, GLdouble x, GLdouble y, GLdouble z, GLdouble w){
+	this->bind();
+	GL_CALL(glUniform4d(getUniformLocation(name), x, y, z, w));
+}
+void Shader::setUniform3d(char* name, GLdouble x, GLdouble y, GLdouble z){
+	this->bind();
+	GL_CALL(glUniform3d(getUniformLocation(name), x, y, z));
+}
+void Shader::setUniform2d(char* name, GLdouble x, GLdouble y){
+	this->bind();
+	GL_CALL(glUniform2d(getUniformLocation(name), x, y));
+}
+void Shader::setUniform1d(char* name, GLdouble v){
+	this->bind();
+	GL_CALL(glUniform1d(getUniformLocation(name), v));
+}
+
+//setUniform GLint
+void Shader::setUniform4i(char* name, GLint x, GLint y, GLint z, GLint w){
+	this->bind();
+	GL_CALL(glUniform4i(getUniformLocation(name), x, y, z, w));
+}
+void Shader::setUniform3i(char* name, GLint x, GLint y, GLint z){
+	this->bind();
+	GL_CALL(glUniform3i(getUniformLocation(name), x, y, z));
+}
+void Shader::setUniform2i(char* name, GLint x, GLint y){
+	this->bind();
+	GL_CALL(glUniform2i(getUniformLocation(name), x, y));
+}
+void Shader::setUniform1i(char* name, GLint v){
+	this->bind();
+	GL_CALL(glUniform1i(getUniformLocation(name), v));
+}
+
+//setUniform GLuint
+void Shader::setUniform4ui(char* name, GLuint x, GLuint y, GLuint z, GLuint w){
+	this->bind();
+	GL_CALL(glUniform4ui(getUniformLocation(name), x, y, z, w));
+}
+void Shader::setUniform3ui(char* name, GLuint x, GLuint y, GLuint z){
+	this->bind();
+	GL_CALL(glUniform3ui(getUniformLocation(name), x, y, z));
+}
+void Shader::setUniform2ui(char* name, GLuint x, GLuint y){
+	this->bind();
+	GL_CALL(glUniform2ui(getUniformLocation(name), x, y));
+}
+void Shader::setUniform1ui(char* name, GLuint v){
+	this->bind();
+	GL_CALL(glUniform1ui(getUniformLocation(name), v));
+}
+
 void Shader::setUniformMat4x4f(char* name, GLboolean transpose, GLfloat* dat){
 	this->bind();
 	GL_CALL(glUniformMatrix4fv(getUniformLocation(name), 1, transpose, dat));
 }
-template<> void Shader::setUniform<float>(char* name, float v){
-	this->bind();
-	GL_CALL(glUniform1f(getUniformLocation(name), v));
-}
-template<> void Shader::setUniform<double>(char* name, double v){
-	this->bind();
-	GL_CALL(glUniform1d(getUniformLocation(name), v));
-}
-template<> void Shader::setUniform<int>(char* name, int v){
-	this->bind();
-	GL_CALL(glUniform1i(getUniformLocation(name), v));
-}
-template<> void Shader::setUniform<unsigned int>(char* name, unsigned int v){
-	this->bind();
-	GL_CALL(glUniform1ui(getUniformLocation(name), v));
-}
+
 /**
  * -------------------------
  * ShaderSource
@@ -143,12 +185,12 @@ void ShaderSource::printElements(){
 		printf("\e[33m%.*s\e[0m\n", e.stop - e.start, e.start);
 	}
 }
-CompiledShader ShaderSource::getShaderFromSource(ShaderType type){
+GLint ShaderSource::getShaderFromSource(ShaderType type){
 	for(uint16_t i = 0; i < elements.size(); i++){
 		ShaderSourceElement e = elements[i];
 		if(e.type == type) return e.compile();
 	}
-	return NULL;
+	return 0;
 }
 void ShaderSource::destroy(){
 	if(destroyed)
@@ -202,7 +244,7 @@ ShaderType ShaderSourceElement::typeFromString(char* str, uint32_t len){
 	return UnknownShader;
 }
 
-CompiledShader ShaderSourceElement::compile(){
+GLint ShaderSourceElement::compile(){
 	GLint gl_type;
 	switch(type){
 		case VertexShader: gl_type = GL_VERTEX_SHADER; break;
@@ -214,7 +256,6 @@ CompiledShader ShaderSourceElement::compile(){
 	GLint len = stop - start;
 	GL_CALL(glShaderSource(id, 1, &start, &len));
 	GL_CALL(glCompileShader(id));
-	CompiledShader out(id);
 	//Check if it actually worked
 	int32_t success;
 	glGetShaderiv(id, GL_COMPILE_STATUS, &success);
@@ -231,15 +272,10 @@ CompiledShader ShaderSourceElement::compile(){
 		if(type == GeometryShader)
 			shaderName = "Geometry shader";
 		printf("Failed to compile shader %s:\n%.*s\nReason: %s\n", shaderName, len, start, infoLog);
-		//return NULL;
+		return 0;
 	}
-	return out;
+	return id;
 }
-
-CompiledShader::~CompiledShader(){
-	GL_CALL(glDeleteShader(id));
-}
-CompiledShader::CompiledShader(GLuint id) : id(id) {}
 /**
  * =================
  *    ShaderType

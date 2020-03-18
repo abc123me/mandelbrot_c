@@ -41,6 +41,7 @@ uint8_t vsync = 0, core_mode = 0;
 uint16_t winW = 0, winH = 0;
 uint16_t newW = 0, newH = 0;
 uint16_t mouseX = 0, mouseY = 0;
+cmplx_f mouse(0, 0);
 uint32_t render_time_ms = 0;
 float tiny_view_size = 0.25f;
 
@@ -65,9 +66,9 @@ struct ft_char_text_t {
 		w(w), h(h), bx(x), by(y), id(id), adv(adv) {}
 };
 uint8_t glyph_cnt = 255;
+uint16_t ft_text_size = 48;
 ft_char_text_t* glyphs = NULL; //Contains glyphs from ' ' to '~'
-Shader* font_vshader = NULL;
-Shader* font_fshader = NULL;
+Shader* font_shader = NULL;
 GLuint font_vbuf_id = 0;
 GLuint font_varr_id = 0;
 
@@ -98,7 +99,7 @@ uint16_t draw_char(char c, uint16_t x, uint16_t y);
 //FreeType
 int8_t freetype_init();
 void load_font_glyphs();
-uint16_t ft_core_draw_char(char c, uint16_t x, uint16_t y);
+uint16_t ft_core_draw_char(ft_char_text_t c, uint16_t x, uint16_t y);
 uint8_t ft_core_draw_str_start();
 void ft_core_draw_str_finish();
 
@@ -144,7 +145,6 @@ void draw_view(view_t* v) {
 	glPopMatrix();
 }
 void draw_stats() {
-	draw_str("1", 100, 100);
 }
 void draw() {
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -195,7 +195,7 @@ int8_t loop() {
 		}
 		if(update & UPDATE_FONT) {
 			update ^= UPDATE_FONT;
-			FT_Set_Pixel_Sizes(ftface, 0, 20);
+			FT_Set_Pixel_Sizes(ftface, 0, ft_text_size);
 			load_font_glyphs();
 		}
 		draw();
@@ -227,9 +227,14 @@ int8_t go() {
 	return out;
 }
 uint16_t draw_str(char* str, uint16_t x, uint16_t y) {
+	uint16_t ox = x;
 	if(str && ft_core_draw_str_start()) {
-		while(*str)
-			x += ft_core_draw_char(*str++, x, y);
+		while(*str) {
+			char c = *str++;
+			if(c == '\r') x = ox;
+			else if(c == '\n') y += glyphs[c].h;
+			else x += ft_core_draw_char(glyphs[c], x, y);
+		}
 		ft_core_draw_str_finish();
 	} return x;
 }
@@ -282,31 +287,26 @@ void onMouseButton(GLFWwindow*, int button, int action, int mods) {}
     _/ // / / / / /_/ / /_/ / / / / /_/ /_/ / /_/ / /_/ / / / /
    /___/_/ /_/_/\__/_/\__,_/_/_/ /___/\__,_/\__/_/\____/_/ /_/
 ==================================================================*/
-Shader* shaderBS(ShaderSource* src, ShaderType st) {
-	Shader* sptr = new Shader();
-	char* stype = ShaderType_tostr(st);
-	printf("Compiling %s shader!\n", stype);
-	CompiledShader cshader = src->getShaderFromSource(st);
-	sptr->attach(cshader);
-	if(!sptr->link()) {
-		printf("Failed to link %s shader!\n", stype);
-		delete sptr; return NULL;
-	}
-	if(!sptr->validate()) {
-		printf("Failed to validate %s shader!\n", stype);
-		delete sptr; return NULL;
-	}
-	return sptr;
-}
-int8_t loadShadersFromFile(char* fname, Shader** vert, Shader** frag, Shader** geom) { 
+int8_t loadShadersFromFile(char* fname, Shader** ss) {
 	FILE* fp = fopen(fname, "r");
 	printf("Loading shaders from \"%s\"\n", fname);
 	if(fp) {
 		ShaderSource src(fp, UnknownShader);
 		fclose(fp);
-		if(vert) *vert = shaderBS(&src, VertexShader);
-		if(frag) *frag = shaderBS(&src, FragmentShader);
-		if(geom) *geom = shaderBS(&src, GeometryShader);
+		Shader* s = new Shader();
+		GLint cs = src.getShaderFromSource(FragmentShader);
+		if(cs) s->attach(cs);
+		cs = src.getShaderFromSource(VertexShader);
+		if(cs) s->attach(cs);
+		cs = src.getShaderFromSource(GeometryShader);
+		if(cs) s->attach(cs);
+		if(!s->link()) {
+			printf("Failed to link %s!\n", fname);
+			delete s; return 1;
+		} else if(!s->validate()) {
+			printf("Failed to validate %s!\n", fname);
+			delete s; return 1;
+		} else *ss = s;
 		src.destroy();
 		printf("Loaded shaders from \"%s\"\n", fname);
 	} else {
@@ -323,8 +323,7 @@ int8_t main_gui(Context* _ctx) {
 	__INIT(freetype_init)
 	__INIT(go)
 err:
-	if(font_fshader) delete font_fshader;
-	if(font_vshader) delete font_vshader;
+	if(font_shader) delete font_shader;
 	glfwDestroyWindow(win);
 	glfwTerminate();
 	return out;
@@ -353,7 +352,7 @@ int8_t opengl_init() {
 	glfwSetMouseButtonCallback(win, onMouseButton);
 	glfwSetCursorPosCallback(win, onMouseMove);
 	glfwSwapInterval(vsync);
-	
+
 	puts("OpenGL initialized!");
 	return 0;
 }
@@ -361,8 +360,8 @@ void gui_parse(uint16_t i, uint16_t cnt, char** args) {
 	return;
 }
 void print_gui_help() {
-	puts("\t--fps/-f <fps>: Force a specific framerate");
-	puts("\t--no-vsync: Disables Vsync");
+	//puts("\t--fps/-f <fps>: Force a specific framerate");
+	//puts("\t--no-vsync: Disables Vsync");
 }
 
 /*         ______             ______
@@ -373,17 +372,20 @@ void print_gui_help() {
                                 /____/_/
 ==========================================================*/
 int8_t init_freetype_shaders() {
-	int8_t shader_err = loadShadersFromFile("res/font.glsl", &font_vshader, &font_fshader, NULL);
+	int8_t shader_err = loadShadersFromFile("res/font.glsl", &font_shader);
 	if(shader_err) return shader_err;
 	puts("Generating font render buffers");
 	uint8_t glfs = sizeof(GLfloat);
+	//Make VAO
 	GL_CALL_CHECK(glGenVertexArrays(1, &font_varr_id), goto err)
-	GL_CALL_CHECK(glGenBuffers(1, &font_vbuf_id), goto err)
 	GL_CALL_CHECK(glBindVertexArray(font_varr_id), goto err)
+	//Make VB
+	GL_CALL_CHECK(glGenBuffers(1, &font_vbuf_id), goto err)
 	GL_CALL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, font_vbuf_id), goto err)
-	GL_CALL_CHECK(glBufferData(GL_ARRAY_BUFFER, glfs * 24, NULL, GL_DYNAMIC_DRAW), goto err)
-	GL_CALL_CHECK(glEnableVertexAttribArray(0), goto err)
-	GL_CALL_CHECK(glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * glfs, 0), goto err)
+	GL_CALL_CHECK(glBufferData(GL_ARRAY_BUFFER, 24 * glfs, NULL, GL_STATIC_DRAW), goto err)	
+	GL_CALL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, font_vbuf_id), goto err)
+	
+	
 	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, 0))
 	GL_CALL(glBindVertexArray(0))
 	puts("Font render buffers created!");
@@ -433,45 +435,51 @@ void load_font_glyphs() {
 	}
 }
 uint8_t ft_core_draw_str_start() {
+	if(!glyphs) {
+		puts("FreeType glyph buffer is null, cannot continue");
+		return 0;
+	}
 	GL_CALL(glEnable(GL_BLEND))
 	GL_CALL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA))
-	glPushMatrix();
-	glLoadIdentity();
-	glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glm::mat4 proj = glm::ortho(0.0f, 1.0f, 0.0f, 1.0f);//(GLfloat) winW, 0.0f, (GLfloat) winH);
-	font_vshader->setUniformMat4x4f("proj", GL_FALSE, glm::value_ptr(proj));
-	font_fshader->setUniform3f("textColor", 1.0f, 1.0f, 1.0f);
+	
 	GL_CALL(glActiveTexture(GL_TEXTURE0))
-	GL_CALL(glBindVertexArray(font_varr_id))
+	
+	font_shader->setUniform4f("textBackColor", 0.0f, 0.0f, 0.0f, 1.0f);
+	font_shader->setUniform4f("textForeColor", 1.0f, 1.0f, 1.0f, 1.0f);
+	font_shader->setUniform1f("threshold", 0.5f);
+	font_shader->setUniform1f("textScale", 1.0f);
+	
+	glm::mat4 p = glm::ortho(0.0f, (GLfloat)winW, (GLfloat)winH, 0.0f);
+	font_shader->setUniformMat4x4f("proj", GL_TRUE, glm::value_ptr(p));
 	return 1;
 }
 void ft_core_draw_str_finish() {
 	GL_CALL(glBindVertexArray(0))
 	GL_CALL(glBindTexture(GL_TEXTURE_2D, 0))
-	font_fshader->unbind();
-	glPopMatrix();
+	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, 0))
+	font_shader->unbind();
 }
-uint16_t ft_core_draw_char(char c, uint16_t x, uint16_t y) {
-	ft_char_text_t fct = glyphs[c];
-	float scale = 0.05f;
-	GLfloat w = fct.w * scale, h = fct.h * scale;
-	GLfloat xp = 0.0f;//glfwMakeContextCurrent + fct.bx * scale;
-	GLfloat yp = 0.0f;//y - (fct.h - fct.by) * scale;
-	printf("%.1f, %.1f: %.1fx%.1f\n", xp, yp, w, h);
-	GLfloat vbuf_dat[6][4] = {
-		{ xp,     yp + h,   0.0, 0.0 },
-		{ xp,     yp,       0.0, 1.0 },
-		{ xp + w, yp,       1.0, 1.0 },
-		{ xp,     yp + h,   0.0, 0.0 },
-		{ xp + w, yp,       1.0, 1.0 },
-		{ xp + w, yp + h,   1.0, 0.0 }
+uint16_t ft_core_draw_char(ft_char_text_t fct, uint16_t x, uint16_t y) {
+	GLfloat w = fct.w, h = fct.h;
+	GLfloat xp = x + fct.bx;
+	GLfloat yp = y - fct.by;
+	
+	GLfloat vbuf_dat[24] = {
+		xp,     yp,     0.0, 0.0, 
+		xp,     yp + h, 0.0, 1.0, 
+		xp + w, yp + h, 1.0, 1.0,
+		xp,     yp,     0.0, 0.0,
+		xp + w, yp + h, 1.0, 1.0,
+		xp + w, yp,     1.0, 0.0
 	};
+	
 	GL_CALL(glBindTexture(GL_TEXTURE_2D, fct.id))
+	GL_CALL(glBindVertexArray(font_varr_id))
 	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, font_vbuf_id))
 	GL_CALL(glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vbuf_dat), vbuf_dat))
-	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, 0))
+	GL_CALL(glEnableVertexAttribArray(0))
+	GL_CALL(glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0))
 	GL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6))
-	x += (fct.adv >> 6) * scale;
-	return x;
+	GL_CALL(glDisableVertexAttribArray(0))
+	return x + fct.adv >> 6;
 }

@@ -1,26 +1,39 @@
 #shader vertex
 #version 330 core
 
-layout (location = 0) in vec4 v;
-out vec2 texc;
+layout (location = 0) in vec4 pos;
+out vec2 tcord;
 
+uniform float textScale;
 uniform mat4 proj;
 
 void main() {
-	gl_Position = proj * vec4(v.xy, 0.0, 1.0);
-	texc = v.zw;
+	gl_Position = vec4(pos.xy * textScale, 0.0, 1.0);
+	gl_Position *= proj;
+	tcord = pos.zw;
 }
 
 #shader fragment
 #version 330 core
 
-in vec2 texc;
-out vec4 color;
+in vec2 tcord;
+out vec4 col;
 
-uniform sampler2D text;
-uniform vec3 textColor;
+uniform vec4 textForeColor;
+uniform vec4 textBackColor;
+uniform sampler2D samp;
+uniform float threshold;
 
+vec4 lerp4(float v, vec4 min, vec4 max) {
+	vec4 o = max - min;
+	o *= v;
+	return o + min;
+}
 void main() {
-	vec4 s = vec4(1, 1, 1, texture(text, texc).r);
-	color = vec4(1, 1, 1, 1); //vec4(textColor, 1) * s;
+	float s = texture(samp, tcord).r;
+	if(threshold > 0) {
+		if(s > threshold) s = 1;
+		else s = 0;
+	}
+	col = lerp4(s, textBackColor, textForeColor);
 }
