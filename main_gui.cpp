@@ -42,7 +42,11 @@ uint16_t winW = 0, winH = 0;
 uint16_t newW = 0, newH = 0;
 uint16_t mouseX = 0, mouseY = 0;
 cmplx_f mouse(0, 0);
-uint32_t render_time_ms = 0;
+cmplx_f mb_min(-1.0f, -1.0f);
+cmplx_f mb_max(1.0f, 1.0f);
+cmplx_f ju_min(-1.0f, -1.0f);
+cmplx_f ju_max(1.0f, 1.0f);
+uint16_t render_time_ms = 0;
 float tiny_view_size = 0.25f;
 
 struct view_t {
@@ -53,6 +57,7 @@ struct view_t {
 	uint16_t x = 0, y = 0, w = 0, h = 0;
 	uint16_t* dat = NULL;
 	uint8_t render = 0;
+	float zoom = 1;
 
 	view_t() {};
 	void set_size(uint16_t w, uint16_t h);
@@ -124,7 +129,7 @@ void view_t::set_size(uint16_t nw, uint16_t nh) {
 	dat = NULL;
 	render = 1;
 }
-void render_view(view_t* v) {
+uint16_t render_view(view_t* v) {
 	uint16_t w = v->w, h = v->h;
 	uint16_t rw = w * ctx->upscale, rh = h * ctx->upscale;
 	if(!v->dat) v->dat = (uint16_t*) malloc(rw * rh * 2);
@@ -134,8 +139,10 @@ void render_view(view_t* v) {
 	clock_t start = clock();
 	render_mb_buf(job, ctx->threads, v->dat);
 	job.print();
-	printf("Took about %dms to complete\n", (1000 * (clock() - start)) / CLOCKS_PER_SEC);
+	uint16_t t = (1000 * (clock() - start)) / CLOCKS_PER_SEC;
+	printf("Took about %dms to complete\n", t);
 	v->render = 0;
+	return t;
 }
 void draw_view(view_t* v) {
 	if(!v->dat || v->render) render_view(v);
@@ -145,6 +152,10 @@ void draw_view(view_t* v) {
 	glPopMatrix();
 }
 void draw_stats() {
+	uint8_t buflen = 128;
+	char buf[buflen];
+	mouse.tostrn(buf, buflen);
+	draw_str(buf, 0, winH);
 }
 void draw() {
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -178,8 +189,25 @@ int8_t loop() {
 			update ^= UPDATE_VP;
 			if(newW) { winW = newW; newW = 0; }
 			if(newH) { winH = newH; newH = 0; }
-			if(mainView) mainView->set_size(winW, winH);
-			if(tinyView) tinyView->set_size((uint16_t)round(winW * tiny_view_size), (uint16_t)round(winH * tiny_view_size));
+			if(mainView) {
+				mainView->set_size(winW, winH);
+				mainView->min = global_min;
+				mainView->max = global_max;
+			}
+			if(tinyView) {
+				tinyView->set_size((uint16_t)round(winW * tiny_view_size), (uint16_t)round(winH * tiny_view_size));
+				mainView->min = global_min;
+				mainView->max = global_max;
+			}
+			if(mandlView) {
+				float rmin = mb_min->min.real, rmax = mb_max->max.real;
+				float imin = mb_min->min.imag, imax = mb_max->max.real;
+				float r = rmax - rmin, i = imax - imin, rd = r / 3, id = i / 8;
+				rmax += rd; rmin -= rd * 2;
+				imax += id; imin -= id;
+				mandlView->max = cmplx_f(rmax, imax);
+				mandlView->min = cmplx_f(rmin, imin);
+			}
 			glLoadIdentity();
 			glViewport(0, 0, winW, winH);
 			glTranslatef(-1, 1, 0);
@@ -277,6 +305,10 @@ void onWindowResize(GLFWwindow* win, int w, int h) {
 }
 void onMouseMove(GLFWwindow*, double x, double y) {
 	mouseX = round(x); mouseY = round(y);
+	float lx = x / winW, ly = y / winH;
+	view_t* ctx = mainView;
+	mouse.real = ctx->min.real + (ctx->max.real - ctx->min.real) * lx;
+	mouse.imag = ctx->min.imag + (ctx->max.imag - ctx->min.imag) * ly;
 }
 void onMouseScroll(GLFWwindow*, double x, double y) {}
 void onMouseButton(GLFWwindow*, int button, int action, int mods) {}

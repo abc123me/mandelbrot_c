@@ -81,4 +81,6 @@ public:
 	void setUniform4ui(char* name, GLuint x, GLuint y, GLuint z, GLuint w);
 	
 	void setUniformMat4x4f(char* name, GLboolean transpose, GLfloat* dat);
+	
+	static Shader* loadShaderFromFile(char* fname);
 };

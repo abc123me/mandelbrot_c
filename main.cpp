@@ -65,21 +65,21 @@ pop:		for(uint16_t k = j; k < i; k++)
 	grad->setAction(set_grad);
 }
 void print_help() {
-        puts("Mandelbrot/Julia set rendering tool");
-        puts("-----------------------------------");
-        puts("  --help/-h: Shows this help dialog");
-        puts("  --cli/--gui: Force CLI/GUI (default) mode");
-        puts("  --size/-s <w> <h>: Sets the output resolution");
-        puts("  --upscale/-u <factor>: Set upscaling (default 1x)");
-        puts("  --iterations/-i <iterations>: Set iterations (default 255)");
-        puts("  --julia/-j <c>: Julia mode, Position should be in format a+/-bi");
+	puts("Mandelbrot/Julia set rendering tool");
+	puts("-----------------------------------");
+	puts("  --help/-h: Shows this help dialog");
+	puts("  --cli/--gui: Force CLI/GUI (default) mode");
+	puts("  --size/-s <w> <h>: Sets the output resolution");
+	puts("  --upscale/-u <factor>: Set upscaling (default 1x)");
+	puts("  --iterations/-i <iterations>: Set iterations (default 255)");
+	puts("  --julia/-j <c>: Julia mode, Position should be in format a+/-bi");
 	puts("  --gradient/-g <g>: Selects a gradient to use");
 	puts("  --gradients: Shows a list of gradients");
 	puts("  --sqrt-gradient: Square roots gradient curve");
 	puts("  --invert-gradient: Inverts the gradient curve");
-      printf("  --threads/-t <num>: Number of render threads used, defaults to %d\n", get_threads());
-        puts("------------- CLI Mode ------------");
+	printf("  --threads/-t <num>: Number of render threads used, defaults to %d\n", get_threads());
+	puts("------------- CLI Mode ------------");
 	print_cli_help();
-        puts("------------- GUI Mode ------------");
-        print_gui_help();
+	puts("------------- GUI Mode ------------");
+	print_gui_help();
 }

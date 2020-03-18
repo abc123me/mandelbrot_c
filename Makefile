@@ -1,4 +1,4 @@
-OBJS=main.o util.o cli_gfx.o main_cli.o main_gui.o colors.o shader.o debug.o
+OBJS=main.o util.o cli_gfx.o main_cli.o main_gui.o colors.o shader.o debug.o ft_text.o
 
 DEPS=glu glfw3 glew freetype2 glm
 CFLAGS=`pkgconf --cflags $(DEPS)` -Wno-write-strings -O3 -DDEBUG_MODE

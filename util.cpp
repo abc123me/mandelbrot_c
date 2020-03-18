@@ -23,13 +23,7 @@ _RENDER_MB_BUF_ST_N(_render_mb_buf_st_j, buf[x + y * opts.w] = count_mb_iter(a, 
 #include "time.h"
 void render_mb_buf_st(mb_opts opts, uint16_t* buf) {
 	if(opts.julia) _render_mb_buf_st_j(opts, buf);
-	else {
-		mb_opts o = opts.clone();
-		float r = o.max_r - o.min_r;
-		o.max_r -= r / 4;
-		o.min_r -= r / 4;
-		_render_mb_buf_st_m(o, buf);
-	}
+	else _render_mb_buf_st_m(opts, buf);
 }
 void* thr_render_mb_buf(void* dat) { //mb_opts opts, uint16_t* buf
 	mb_opts o = *((mb_opts*) dat);
@@ -60,18 +54,9 @@ void render_mb_buf(mb_opts opts, uint16_t thrs, uint16_t* buf) {
 	} else render_mb_buf_st(opts, buf);
 }
 
-
-
-
-
-
-
-
-
-
-
-
 uint16_t count_mb_iter(float a, float b, float ca, float cb, uint16_t max) {
+	if(a < 0.1 && a > -0.1)
+		return 1;
 	float a2, b2, c;
 	for(uint16_t i = 0; i < max; i++){
 		a2 = a * a;
@@ -308,4 +293,8 @@ void rotateArray(void* array, unsigned long int size, int by){
 	}
 	memcpy(array, newArray, size);
 }
-
+uint16_t cmplx_f::tostrn(char* s, uint16_t l) {
+	if(imag == 0) return snprintf(s, l, "%f", real);
+	else if(real == 0) return snprintf(s, l, "%fi", imag);
+	else return snprintf(s, l, "%f%s%fi", real, imag > 0 ? "+" : "", imag); 
+}

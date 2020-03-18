@@ -5,8 +5,8 @@
 #include "stdio.h"
 
 struct mb_opts {
-        uint16_t max_iter = 255;
-        float c_real = 0, c_imag = 0;
+	uint16_t max_iter = 255;
+    float c_real = 0, c_imag = 0;
 	uint16_t w = 0,  h = 0;
 	uint16_t sx = 0, sy = 0;
 	uint16_t ex = 0, ey = 0;
@@ -22,6 +22,7 @@ struct mb_opts {
 struct cmplx_f {
 	float real, imag;
 	cmplx_f(float r, float i) : real(r), imag(i) {}
+	uint16_t tostrn(char* buf, uint16_t len);
 	void print();
 };
 
