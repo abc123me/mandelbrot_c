@@ -14,17 +14,14 @@
 #define GLEW_STATIC
 #include "GL/glew.h"
 #include "GLFW/glfw3.h"
-// FreeType
-#include <ft2build.h>
-#include FT_FREETYPE_H
 // GLM
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtc/type_ptr.hpp"
 // My bullshit
 #include "main.h"
 #include "shader.h"
 #include "debug.h"
+#include "ft_text.h"
 
 /*      ________      __          __
        / ____/ /___  / /_  ____ _/ /____
@@ -34,8 +31,7 @@
 ==========================================*/
 GLFWwindow* win;
 Context* ctx;
-FT_Library ftlib;
-FT_Face ftface;
+FontRenderer font;
 mb_opts cur_job;
 uint8_t vsync = 0, core_mode = 0;
 uint16_t winW = 0, winH = 0;
@@ -63,20 +59,6 @@ struct view_t {
 	void set_size(uint16_t w, uint16_t h);
 };
 
-//Font bullshit
-struct ft_char_text_t {
-	GLuint id, adv;
-	int16_t w, h, bx, by;
-	ft_char_text_t(GLuint id, int16_t w, int16_t h, int16_t x, int16_t y, GLuint adv) :
-		w(w), h(h), bx(x), by(y), id(id), adv(adv) {}
-};
-uint8_t glyph_cnt = 255;
-uint16_t ft_text_size = 48;
-ft_char_text_t* glyphs = NULL; //Contains glyphs from ' ' to '~'
-Shader* font_shader = NULL;
-GLuint font_vbuf_id = 0;
-GLuint font_varr_id = 0;
-
 //View pointers
 view_t* mainView = NULL;
 view_t* tinyView = NULL;
@@ -96,31 +78,19 @@ void onMouseMove(GLFWwindow*, double x, double y);
 void onMouseScroll(GLFWwindow*, double x, double y);
 void onMouseButton(GLFWwindow*, int button, int action, int mods);
 
-//Functions
-void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u);
-uint16_t draw_str(char* str, uint16_t x, uint16_t y);
-uint16_t draw_char(char c, uint16_t x, uint16_t y);
-
-//FreeType
-int8_t freetype_init();
-void load_font_glyphs();
-uint16_t ft_core_draw_char(ft_char_text_t c, uint16_t x, uint16_t y);
-uint8_t ft_core_draw_str_start();
-void ft_core_draw_str_finish();
-
 //Random
 int8_t opengl_init();
 int8_t go();
 int8_t loop();
 void draw();
 void render();
+void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u);
 
 // Update mask
 uint8_t update = 0;
 #define UPDATE_VP        1
 #define UPDATE_MAIN_VIEW 2
 #define UPDATE_TINY_VIEW 4
-#define UPDATE_FONT      8
 #define UPDATE_ALL 0xFF
 
 void view_t::set_size(uint16_t nw, uint16_t nh) {
@@ -153,9 +123,10 @@ void draw_view(view_t* v) {
 }
 void draw_stats() {
 	uint8_t buflen = 128;
-	char buf[buflen];
-	mouse.tostrn(buf, buflen);
-	draw_str(buf, 0, winH);
+	char buf[buflen], buf2[buflen];
+	mouse.tostrn(buf2, buflen);
+	snprintf(buf, buflen, "C:%s\n\rVersion: Holy shit, It works!", buf2);
+	font.drawText(buf, 0, winH);
 }
 void draw() {
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -189,26 +160,30 @@ int8_t loop() {
 			update ^= UPDATE_VP;
 			if(newW) { winW = newW; newW = 0; }
 			if(newH) { winH = newH; newH = 0; }
-			if(mainView) {
+			if(mainView)
 				mainView->set_size(winW, winH);
-				mainView->min = global_min;
-				mainView->max = global_max;
-			}
-			if(tinyView) {
+			if(tinyView)
 				tinyView->set_size((uint16_t)round(winW * tiny_view_size), (uint16_t)round(winH * tiny_view_size));
-				mainView->min = global_min;
-				mainView->max = global_max;
-			}
 			if(mandlView) {
-				float rmin = mb_min->min.real, rmax = mb_max->max.real;
-				float imin = mb_min->min.imag, imax = mb_max->max.real;
+				float rmin = mb_min.real, rmax = mb_max.real;
+				float imin = mb_min.imag, imax = mb_max.real;
 				float r = rmax - rmin, i = imax - imin, rd = r / 3, id = i / 8;
 				rmax += rd; rmin -= rd * 2;
 				imax += id; imin -= id;
 				mandlView->max = cmplx_f(rmax, imax);
 				mandlView->min = cmplx_f(rmin, imin);
 			}
+			if(juliaView) {
+				float rmin = ju_min.real, rmax = ju_max.real;
+				float imin = ju_min.imag, imax = ju_max.real;
+				float r = rmax - rmin, i = imax - imin, rd = r / 4, id = i / 4;
+				rmax += rd; rmin -= rd;
+				imax += id; imin -= id;
+				juliaView->max = cmplx_f(rmax, imax);
+				juliaView->min = cmplx_f(rmin, imin);
+			}
 			glLoadIdentity();
+			font.setProjectionMatrix(glm::ortho(0.0f, (GLfloat)winW, (GLfloat)winH, 0.0f));
 			glViewport(0, 0, winW, winH);
 			glTranslatef(-1, 1, 0);
 			glScalef(2 / (float) winW, -2 / (float) winH, 1);
@@ -220,11 +195,6 @@ int8_t loop() {
 		if(update & UPDATE_TINY_VIEW) {
 			update ^= UPDATE_TINY_VIEW;
 			if(tinyView) tinyView->render = 1;
-		}
-		if(update & UPDATE_FONT) {
-			update ^= UPDATE_FONT;
-			FT_Set_Pixel_Sizes(ftface, 0, ft_text_size);
-			load_font_glyphs();
 		}
 		draw();
 		glfwPollEvents();
@@ -246,29 +216,17 @@ int8_t go() {
 	mandlView->julia = 0;
 	draw_mouse_onto = mandlView;
 	juliaView->pos = ctx->julia_pos;
-
+	
+	font.setFont("res/font.ttf");
+	font.setTextSize(winW / 25);
+	font.setTextScale(1.0f);
+	
 	update = UPDATE_ALL;
 	int8_t out = loop();
 
 	if(mainView && mainView->dat) free(mainView->dat);
 	if(tinyView && tinyView->dat) free(tinyView->dat);
 	return out;
-}
-uint16_t draw_str(char* str, uint16_t x, uint16_t y) {
-	uint16_t ox = x;
-	if(str && ft_core_draw_str_start()) {
-		while(*str) {
-			char c = *str++;
-			if(c == '\r') x = ox;
-			else if(c == '\n') y += glyphs[c].h;
-			else x += ft_core_draw_char(glyphs[c], x, y);
-		}
-		ft_core_draw_str_finish();
-	} return x;
-}
-uint16_t draw_char(char c, uint16_t x, uint16_t y) {
-	char buf[2] = { c, 0 };
-	return draw_str(buf, x, y);
 }
 void core_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
 
@@ -309,6 +267,10 @@ void onMouseMove(GLFWwindow*, double x, double y) {
 	view_t* ctx = mainView;
 	mouse.real = ctx->min.real + (ctx->max.real - ctx->min.real) * lx;
 	mouse.imag = ctx->min.imag + (ctx->max.imag - ctx->min.imag) * ly;
+	if(juliaView) {
+		juliaView->pos = mouse;
+		update |= juliaView == mainView ? UPDATE_MAIN_VIEW : UPDATE_TINY_VIEW;
+	}
 }
 void onMouseScroll(GLFWwindow*, double x, double y) {}
 void onMouseButton(GLFWwindow*, int button, int action, int mods) {}
@@ -319,43 +281,15 @@ void onMouseButton(GLFWwindow*, int button, int action, int mods) {}
     _/ // / / / / /_/ / /_/ / / / / /_/ /_/ / /_/ / /_/ / / / /
    /___/_/ /_/_/\__/_/\__,_/_/_/ /___/\__,_/\__/_/\____/_/ /_/
 ==================================================================*/
-int8_t loadShadersFromFile(char* fname, Shader** ss) {
-	FILE* fp = fopen(fname, "r");
-	printf("Loading shaders from \"%s\"\n", fname);
-	if(fp) {
-		ShaderSource src(fp, UnknownShader);
-		fclose(fp);
-		Shader* s = new Shader();
-		GLint cs = src.getShaderFromSource(FragmentShader);
-		if(cs) s->attach(cs);
-		cs = src.getShaderFromSource(VertexShader);
-		if(cs) s->attach(cs);
-		cs = src.getShaderFromSource(GeometryShader);
-		if(cs) s->attach(cs);
-		if(!s->link()) {
-			printf("Failed to link %s!\n", fname);
-			delete s; return 1;
-		} else if(!s->validate()) {
-			printf("Failed to validate %s!\n", fname);
-			delete s; return 1;
-		} else *ss = s;
-		src.destroy();
-		printf("Loaded shaders from \"%s\"\n", fname);
-	} else {
-		printf("Failed to load shaders from \"%s\"!\n", fname);
-		return 1;
-	}
-	return 0;
-}
 #define __INIT(func) { out = func(); if(out) goto err; }
 int8_t main_gui(Context* _ctx) {
 	ctx = _ctx;
 	int8_t out;
 	__INIT(opengl_init)
-	__INIT(freetype_init)
+	__INIT(init_ft_text)
 	__INIT(go)
 err:
-	if(font_shader) delete font_shader;
+	destroy_ft_text();
 	glfwDestroyWindow(win);
 	glfwTerminate();
 	return out;
@@ -394,124 +328,4 @@ void gui_parse(uint16_t i, uint16_t cnt, char** args) {
 void print_gui_help() {
 	//puts("\t--fps/-f <fps>: Force a specific framerate");
 	//puts("\t--no-vsync: Disables Vsync");
-}
-
-/*         ______             ______
-          / ____/_______  ___/_  __/_  ______  ___
-         / /_  / ___/ _ \/ _ \/ / / / / / __ \/ _ \
-        / __/ / /  /  __/  __/ / / /_/ / /_/ /  __/
-       /_/   /_/   \___/\___/_/  \__, / .___/\___/
-                                /____/_/
-==========================================================*/
-int8_t init_freetype_shaders() {
-	int8_t shader_err = loadShadersFromFile("res/font.glsl", &font_shader);
-	if(shader_err) return shader_err;
-	puts("Generating font render buffers");
-	uint8_t glfs = sizeof(GLfloat);
-	//Make VAO
-	GL_CALL_CHECK(glGenVertexArrays(1, &font_varr_id), goto err)
-	GL_CALL_CHECK(glBindVertexArray(font_varr_id), goto err)
-	//Make VB
-	GL_CALL_CHECK(glGenBuffers(1, &font_vbuf_id), goto err)
-	GL_CALL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, font_vbuf_id), goto err)
-	GL_CALL_CHECK(glBufferData(GL_ARRAY_BUFFER, 24 * glfs, NULL, GL_STATIC_DRAW), goto err)	
-	GL_CALL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, font_vbuf_id), goto err)
-	
-	
-	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, 0))
-	GL_CALL(glBindVertexArray(0))
-	puts("Font render buffers created!");
-	return 0;
-err:
-	puts("Unrecoverable FreeTpye/OpenGL error detected");
-	return 1;
-}
-int8_t freetype_init() {
-	puts("Initializing FreeType!");
-	int8_t err = FT_Init_FreeType(&ftlib);
-	if(err) {
-		puts("Failed to initialize FreeType!");
-		return err;
-	}
-	err = FT_New_Face(ftlib, "res/font.ttf", 0, &ftface);
-	if(err) {
-		puts("Failed to load font!");
-		return err;
-	}
-	err = init_freetype_shaders();
-	if(err) {
-		puts("Failed to load freetype shaders!");
-		return err;
-	}
-	puts("FreeType initialized, font loaded!");
-	return 0;
-}
-void load_font_glyphs() {
-	if(glyphs) free(glyphs);
-	glyphs = (ft_char_text_t*) malloc(sizeof(ft_char_text_t) * glyph_cnt);
-	GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1)); // 4 byte allignment restriction, the glyphs are 1 byte grayscale
-	for(uint8_t i = 0; i < glyph_cnt; i++) {
-		if(FT_Load_Char(ftface, i, FT_LOAD_RENDER))
-			continue;
-		uint8_t w = ftface->glyph->bitmap.width, h = ftface->glyph->bitmap.rows;
-		void* buf = ftface->glyph->bitmap.buffer;
-		GLuint id;
-		GL_CALL(glGenTextures(1, &id));
-		GL_CALL(glBindTexture(GL_TEXTURE_2D, id));
-		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, buf));
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glyphs[i] = ft_char_text_t(id, w, h, ftface->glyph->bitmap_left, ftface->glyph->bitmap_top, ftface->glyph->advance.x);
-	}
-}
-uint8_t ft_core_draw_str_start() {
-	if(!glyphs) {
-		puts("FreeType glyph buffer is null, cannot continue");
-		return 0;
-	}
-	GL_CALL(glEnable(GL_BLEND))
-	GL_CALL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA))
-	
-	GL_CALL(glActiveTexture(GL_TEXTURE0))
-	
-	font_shader->setUniform4f("textBackColor", 0.0f, 0.0f, 0.0f, 1.0f);
-	font_shader->setUniform4f("textForeColor", 1.0f, 1.0f, 1.0f, 1.0f);
-	font_shader->setUniform1f("threshold", 0.5f);
-	font_shader->setUniform1f("textScale", 1.0f);
-	
-	glm::mat4 p = glm::ortho(0.0f, (GLfloat)winW, (GLfloat)winH, 0.0f);
-	font_shader->setUniformMat4x4f("proj", GL_TRUE, glm::value_ptr(p));
-	return 1;
-}
-void ft_core_draw_str_finish() {
-	GL_CALL(glBindVertexArray(0))
-	GL_CALL(glBindTexture(GL_TEXTURE_2D, 0))
-	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, 0))
-	font_shader->unbind();
-}
-uint16_t ft_core_draw_char(ft_char_text_t fct, uint16_t x, uint16_t y) {
-	GLfloat w = fct.w, h = fct.h;
-	GLfloat xp = x + fct.bx;
-	GLfloat yp = y - fct.by;
-	
-	GLfloat vbuf_dat[24] = {
-		xp,     yp,     0.0, 0.0, 
-		xp,     yp + h, 0.0, 1.0, 
-		xp + w, yp + h, 1.0, 1.0,
-		xp,     yp,     0.0, 0.0,
-		xp + w, yp + h, 1.0, 1.0,
-		xp + w, yp,     1.0, 0.0
-	};
-	
-	GL_CALL(glBindTexture(GL_TEXTURE_2D, fct.id))
-	GL_CALL(glBindVertexArray(font_varr_id))
-	GL_CALL(glBindBuffer(GL_ARRAY_BUFFER, font_vbuf_id))
-	GL_CALL(glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vbuf_dat), vbuf_dat))
-	GL_CALL(glEnableVertexAttribArray(0))
-	GL_CALL(glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, 0))
-	GL_CALL(glDrawArrays(GL_TRIANGLES, 0, 6))
-	GL_CALL(glDisableVertexAttribArray(0))
-	return x + fct.adv >> 6;
 }

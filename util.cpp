@@ -55,8 +55,6 @@ void render_mb_buf(mb_opts opts, uint16_t thrs, uint16_t* buf) {
 }
 
 uint16_t count_mb_iter(float a, float b, float ca, float cb, uint16_t max) {
-	if(a < 0.1 && a > -0.1)
-		return 1;
 	float a2, b2, c;
 	for(uint16_t i = 0; i < max; i++){
 		a2 = a * a;

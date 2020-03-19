@@ -79,14 +79,14 @@ uint16_t Shader::cleanupUniformCache(uint16_t minUses){
 	uniformCache = newShaderCache;
 	return removed;
 }
-static Shader* Shader::loadShaderFromFile(char* fname) {
+Shader* Shader::loadShaderFromFile(char* fname) {
 	FILE* fp = fopen(fname, "r");
 	printf("Loading shaders from \"%s\"\n", fname);
 	Shader* s = NULL;
 	if(fp) {
 		ShaderSource src(fp, UnknownShader);
 		fclose(fp);
-		Shader* s = new Shader();
+		s = new Shader();
 		GLint cs = src.getShaderFromSource(FragmentShader);
 		if(cs) s->attach(cs);
 		cs = src.getShaderFromSource(VertexShader);
@@ -99,7 +99,7 @@ static Shader* Shader::loadShaderFromFile(char* fname) {
 		} else if(!s->validate()) {
 			printf("Failed to validate %s!\n", fname);
 			delete s; return NULL;
-		} else *ss = s;
+		}
 		src.destroy();
 		printf("Loaded shaders from \"%s\"\n", fname);
 	} else {
