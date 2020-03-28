@@ -19,6 +19,7 @@
 #include "glm/gtc/matrix_transform.hpp"
 // My bullshit
 #include "main.h"
+#include "util.h"
 #include "shader.h"
 #include "debug.h"
 #include "ft_text.h"
@@ -37,13 +38,14 @@ uint8_t vsync = 0, core_mode = 0;
 uint16_t winW = 0, winH = 0;
 uint16_t newW = 0, newH = 0;
 uint16_t mouseX = 0, mouseY = 0;
-cmplx_f mouse(0, 0);
+cmplx_f current_pos(0, 0);
 cmplx_f mb_min(-1.0f, -1.0f);
 cmplx_f mb_max(1.0f, 1.0f);
 cmplx_f ju_min(-1.0f, -1.0f);
 cmplx_f ju_max(1.0f, 1.0f);
 uint16_t render_time_ms = 0;
 float tiny_view_size = 0.25f;
+double deltaTime = 0;
 
 struct view_t {
 	uint8_t julia = 0;
@@ -84,7 +86,7 @@ int8_t go();
 int8_t loop();
 void draw();
 void render();
-void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u);
+void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t s);
 
 // Update mask
 uint8_t update = 0;
@@ -93,6 +95,8 @@ uint8_t update = 0;
 #define UPDATE_TINY_VIEW 4
 #define UPDATE_ALL 0xFF
 
+#define RENDER_STEPS 10
+
 void view_t::set_size(uint16_t nw, uint16_t nh) {
 	w = nw; h = nh;
 	if(dat) free(dat);
@@ -100,43 +104,53 @@ void view_t::set_size(uint16_t nw, uint16_t nh) {
 	render = 1;
 }
 uint16_t render_view(view_t* v) {
-	uint16_t w = v->w, h = v->h;
-	uint16_t rw = w * ctx->upscale, rh = h * ctx->upscale;
-	if(!v->dat) v->dat = (uint16_t*) malloc(rw * rh * 2);
+	uint16_t rw = v->w * ctx->upscale, rh = v->h * ctx->upscale;
+	uint32_t size = rw * rh * sizeof(uint16_t);
+	if(v->render > 1) { rw /= v->render; rh /= v->render; }
+	if(!v->dat) v->dat = (uint16_t*) malloc(size);
 	mb_opts job;
 	if(v->julia) job = new_julia_job(rw, rh, v->pos, ctx->iter, v->min, v->max);
 	else job = new_mandelbrot_job(rw, rh, ctx->iter, v->min, v->max);
 	clock_t start = clock();
 	render_mb_buf(job, ctx->threads, v->dat);
-	job.print();
+	//job.print();
 	uint16_t t = (1000 * (clock() - start)) / CLOCKS_PER_SEC;
-	printf("Took about %dms to complete\n", t);
-	v->render = 0;
+	//printf("Took about %dms to complete\n", t);
 	return t;
 }
 void draw_view(view_t* v) {
-	if(!v->dat || v->render) render_view(v);
+	uint8_t d = v->render;
+	if(!v->dat || d) {
+		render_view(v);
+		v->render--;
+	}
 	glPushMatrix();
 	glTranslatef(v->x, v->y, 0.0f);
-	imm_render_buf(v->dat, v->w, v->h, ctx->upscale);
+	imm_render_buf(v->dat, v->w, v->h, ctx->upscale, d);
 	glPopMatrix();
 }
 void draw_stats() {
 	uint8_t buflen = 128;
-	char buf[buflen], buf2[buflen];
-	mouse.tostrn(buf2, buflen);
-	snprintf(buf, buflen, "C:%s\n\rVersion: Holy shit, It works!", buf2);
-	font.drawText(buf, 0, winH);
+	char buf[buflen];
+	uint16_t fh = font.getHeight();
+	uint16_t pos = winH;
+	strcpy(buf, "Press h for help");
+	font.drawText(buf, 0, pos);
+	current_pos.tostrn(buf + snprintf(buf, buflen, "C: "), buflen);
+	font.drawText(buf, 0, pos -= fh);
+	snprintf(buf, buflen, "dT: %.3f seconds", deltaTime);
+	font.drawText(buf, 0, pos -= fh);
 }
 void draw() {
+	uint64_t clk = clock();
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	GL_CALL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 	if(mainView) draw_view(mainView);
 	if(tinyView) draw_view(tinyView);
 	if(draw_mouse_onto) {
 		view_t* v = draw_mouse_onto;
-		uint16_t x = round((mouseX / (float) winW) * v->w) + v->x;
-		uint16_t y = round((mouseY / (float) winH) * v->h) + v->y;
+		uint16_t x = round(map<float>(current_pos.real, mainView->min.real, mainView->max.real, 0, v->w));
+		uint16_t y = round(map<float>(current_pos.imag, mainView->min.imag, mainView->max.imag, 0, v->h));
 		glBegin(GL_LINES);
 		glColor3ub(255, 255, 255);
 		glVertex2f(v->x, y);
@@ -150,6 +164,8 @@ void draw() {
 	draw_stats();
 
 	glfwSwapBuffers(win);
+	uint64_t dclk = clock() - clk;
+	deltaTime = dclk / (double)CLOCKS_PER_SEC;
 }
 
 int8_t loop() {
@@ -190,11 +206,11 @@ int8_t loop() {
 		}
 		if(update & UPDATE_MAIN_VIEW) {
 			update ^= UPDATE_MAIN_VIEW;
-			if(mainView) mainView->render = 1;
+			if(mainView) mainView->render = RENDER_STEPS;
 		}
 		if(update & UPDATE_TINY_VIEW) {
 			update ^= UPDATE_TINY_VIEW;
-			if(tinyView) tinyView->render = 1;
+			if(tinyView) tinyView->render = RENDER_STEPS;
 		}
 		draw();
 		glfwPollEvents();
@@ -228,10 +244,10 @@ int8_t go() {
 	if(tinyView && tinyView->dat) free(tinyView->dat);
 	return out;
 }
-void core_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
+void core_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t d) {
 
 }
-void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
+void imm_render_buf_nds(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
 	glBegin(GL_POINTS);
 	uint16_t uu = u * u;
 	for(uint16_t x = 0; x < w; x++) {
@@ -242,7 +258,7 @@ void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
 				for(uint8_t i = 0; i < u; i++)
 					for(uint8_t j = 0; j < u; j++)
 						iter += buf[x + i + w * (y + j)];
-				iter /= uu;
+					iter /= uu;
 			} else iter = buf[x + y * w];
 			c = ctx->grad->at(iter, 0, ctx->iter);
 			glVertex2s(x, y);
@@ -250,6 +266,38 @@ void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
 		}
 	}
 	glEnd();
+}
+void imm_render_buf_ds(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t d) {
+	glBegin(GL_TRIANGLES);
+	w /= d; h /= d;
+	uint16_t uu = u * u;
+	for(uint16_t x = 0; x < w; x++) {
+		for(uint16_t y = 0; y < h; y++) {
+			Color c; uint16_t iter = 0;
+			if(u > 1) {
+				puts("test");
+				for(uint8_t i = 0; i < u; i++)
+					for(uint8_t j = 0; j < u; j++)
+						iter += buf[x + i + w * (y + j)];
+					iter /= uu;
+			} else iter = buf[x + y * w];
+			c = ctx->grad->at(iter, 0, ctx->iter);
+			uint16_t lx = x * d, ly = y * d;
+			uint16_t rx = lx + d, ry = ly + d;
+			glColor3ub(c.r, c.g, c.b);
+			glVertex2s(rx, ry);
+			glVertex2s(rx, ly);
+			glVertex2s(lx, ry);
+			glVertex2s(lx, ly);
+			glVertex2s(rx, ly);
+			glVertex2s(lx, ry);
+		}
+	}
+	glEnd();
+}
+void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t d) {
+	if(d > 0) imm_render_buf_ds(buf, w, h, u, d);
+	else imm_render_buf_nds(buf, w, h, u);
 }
 /*       ______                 __
         / ____/   _____  ____  / /______
@@ -265,10 +313,10 @@ void onMouseMove(GLFWwindow*, double x, double y) {
 	mouseX = round(x); mouseY = round(y);
 	float lx = x / winW, ly = y / winH;
 	view_t* ctx = mainView;
-	mouse.real = ctx->min.real + (ctx->max.real - ctx->min.real) * lx;
-	mouse.imag = ctx->min.imag + (ctx->max.imag - ctx->min.imag) * ly;
+	current_pos.real = ctx->min.real + (ctx->max.real - ctx->min.real) * lx;
+	current_pos.imag = ctx->min.imag + (ctx->max.imag - ctx->min.imag) * ly;
 	if(juliaView) {
-		juliaView->pos = mouse;
+		juliaView->pos = current_pos;
 		update |= juliaView == mainView ? UPDATE_MAIN_VIEW : UPDATE_TINY_VIEW;
 	}
 }

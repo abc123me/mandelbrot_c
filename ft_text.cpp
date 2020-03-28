@@ -19,14 +19,10 @@
 #include "debug.h"
 #include "ft_text.h"
 
-
-
 FT_Library ftlib;
 Shader* font_shader = NULL;
 GLuint font_varr_id = 0;
 GLuint font_vbuf_id = 0;
-
-
 
 FontRenderer::FontRenderer() {
 	glyphs = (ft_char_text_t*)malloc(sizeof(ft_char_text_t) * glyph_cnt);
@@ -156,7 +152,7 @@ void destroy_ft_text() {
 	delete font_shader;
 	glDeleteBuffers(1, &font_vbuf_id);
 	glDeleteVertexArrays(1, &font_varr_id);
-	FT_Done_FreeType(ftlib);
+	//FT_Done_FreeType(ftlib);
 }
 int8_t init_freetype_shaders() {
 	font_shader = Shader::loadShaderFromFile("res/font.glsl");
@@ -197,4 +193,7 @@ int8_t init_ft_text() {
 	}
 	puts("FreeType initialized, font loaded!");
 	return 0;
+}
+uint16_t FontRenderer::getHeight() {
+	return size * scale;
 }

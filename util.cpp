@@ -70,16 +70,6 @@ uint16_t count_mb_iter(float a, float b, float ca, float cb, uint16_t max) {
 
 
 // Math stuff
-template <typename T> inline T map(T val, T min, T max, T nmin, T nmax) {
-        return nmin + (((val - min) / (max - min)) * (nmax - nmin));
-}
-template <typename T> T wrap(T val, T min, T max){
-	if(val < min)
-		return (max - min) - (val - min);
-	if(val > max)
-		return (val - min);
-	return val + min;
-}
 uint16_t _atocmplx_f_rm_ws(char* s, char* tmp) {
 	uint16_t j = 0;
 	for(uint16_t i = 0; i < strlen(s); i++)

@@ -26,8 +26,6 @@ struct cmplx_f {
 	void print();
 };
 
-template <typename T> inline T map(T val, T min, T max, T nmin, T nmax);
-
 void render_mb_buf(mb_opts opts, uint16_t threads, uint16_t* buf);
 uint16_t count_mb_iter(float a, float b, float ca, float cb, uint16_t max);
 mb_opts new_mandelbrot_job(uint16_t w, uint16_t h, uint16_t i, cmplx_f min, cmplx_f max);
@@ -54,7 +52,17 @@ uint64_t fileSize(FILE* fp);
 char* readFile(FILE* fp);
 void readFileInto(FILE* fp, char* buf);
 
-template<typename T> T wrap(T val, T min, T max);
 void rotateArray(void* array, unsigned long int arraySize, int by);
+
+template <typename T> inline T map(T val, T min, T max, T nmin, T nmax) {
+	return nmin + (((val - min) / (max - min)) * (nmax - nmin));
+}
+template <typename T> T wrap(T val, T min, T max){
+	if(val < min)
+		return (max - min) - (val - min);
+	if(val > max)
+		return (val - min);
+	return val + min;
+}
 
 #endif
