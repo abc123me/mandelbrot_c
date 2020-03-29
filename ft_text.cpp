@@ -41,6 +41,7 @@ void gcache_entry_t::unload() {
 		}
 		free(glyphs);
 		size = 0;
+		uses = 0;
 		glyphs = NULL;
 	}
 }
@@ -90,7 +91,8 @@ int8_t FontRenderer::setFont(char* name) {
 	}
 	int8_t out = FT_New_Face(ftlib, name, 0, &ftface);
 	if(out) return out;
-	cmask |= FR_CMASK_UPDATE_GLYPHS;
+	for(uint8_t i = 0; i < gcache_len; i++)
+		entries[i].unload();
 	cmask |= FR_CMASK_FTFACE_VALID;
 	return 0;
 }

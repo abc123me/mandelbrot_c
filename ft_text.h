@@ -13,8 +13,7 @@
 #include "glm/glm.hpp"
 
 #define CHARSET_SIZE 255
-#define FR_CMASK_UPDATE_GLYPHS 1
-#define FR_CMASK_FTFACE_VALID 2
+#define FR_CMASK_FTFACE_VALID 1
 
 struct ft_char_text_t {
 	GLuint id, adv;
@@ -45,7 +44,7 @@ private:
 	gcache_entry_t* cur = NULL;
 	uint8_t gcache_len = 0;
 	//Control mask
-	// Bit 2: FTFace valid
+	// Bit 1: FTFace valid
 	uint8_t cmask = 0;
 	
 	void load_glyphs();
