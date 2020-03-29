@@ -24,65 +24,32 @@ Shader* font_shader = NULL;
 GLuint font_varr_id = 0;
 GLuint font_vbuf_id = 0;
 
-FontRenderer::FontRenderer() {
-	glyphs = (ft_char_text_t*)malloc(sizeof(ft_char_text_t) * glyph_cnt);
-	update_glyphs = 1;
+gcache_entry_t::gcache_entry_t() {
+	this->size = 0;
+	this->uses = 0;
+	this->glyphs = NULL;
 }
-FontRenderer::~FontRenderer() {
-	if(ftface_valid) {
-		FT_Done_Face(ftface);
-		ftface_valid = 0;
-	}
-	free(glyphs);
-	glyphs = NULL;
-}
-int8_t FontRenderer::setFont(char* name) {
-	if(ftface_valid) {
-		FT_Done_Face(ftface);
-		ftface_valid = 0;
-	}
-	int8_t out = FT_New_Face(ftlib, name, 0, &ftface);
-	if(out) return out;
-	ftface_valid = 1;
-	update_glyphs = 1;
-	return 0;
-}
-void FontRenderer::setTextSize(uint16_t size) {
+gcache_entry_t::gcache_entry_t(uint16_t size) {
 	this->size = size;
-	update_glyphs = 1;
+	this->uses = 0;
+	this->glyphs = NULL;
 }
-void FontRenderer::setTextScale(float scale) { 
-	this->scale = scale;
-}
-void FontRenderer::setProjectionMatrix(glm::mat4 proj) {
-	this->proj = proj;
-}
-void FontRenderer::setBlending(uint8_t b) {
-	if(b) threshold =  0.5f;
-	else  threshold = -1.0f;
-}
-uint16_t FontRenderer::drawChar(char c, uint16_t x, uint16_t y) { 
-	char buf[2] = { c, 0 };
-	return drawText(buf, x, y);
-}
-uint16_t FontRenderer::drawText(char* str, uint16_t x, uint16_t y) {
-	uint16_t ox = x;
-	if(str && ft_core_draw_str_start()) {
-		while(*str) {
-			char c = *str++;
-			if(c == '\r') x = ox;
-			else if(c == '\n') y -= (glyphs[c].h * 1.5);
-			else x += ft_core_draw_char(glyphs[c], x, y);
+void gcache_entry_t::unload() {
+	if(glyphs) {
+		for(uint8_t i = 0; i < CHARSET_SIZE; i++) {
+			GL_CALL(glDeleteTextures(1, &glyphs[i].id));
 		}
-		ft_core_draw_str_finish();
-	} return x;
+		free(glyphs);
+		size = 0;
+		glyphs = NULL;
+	}
 }
-void FontRenderer::load_glyphs() {
-	if(glyphs) free(glyphs);
+void gcache_entry_t::load(FT_Face ftface) {
+	this->unload();
 	FT_Set_Pixel_Sizes(ftface, 0, size);
-	glyphs = (ft_char_text_t*) malloc(sizeof(ft_char_text_t) * glyph_cnt);
+	glyphs = (ft_char_text_t*) malloc(sizeof(ft_char_text_t) * CHARSET_SIZE);
 	GL_CALL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1)); // 4 byte allignment restriction, the glyphs are 1 byte grayscale
-	for(uint8_t i = 0; i < glyph_cnt; i++) {
+	for(uint8_t i = 0; i < CHARSET_SIZE; i++) {
 		if(FT_Load_Char(ftface, i, FT_LOAD_RENDER))
 			continue;
 		uint8_t w = ftface->glyph->bitmap.width, h = ftface->glyph->bitmap.rows;
@@ -95,23 +62,102 @@ void FontRenderer::load_glyphs() {
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		if(i == ' ') w = (ftface->glyph->advance.x >> 6);
 		glyphs[i] = ft_char_text_t(id, w, h, ftface->glyph->bitmap_left, ftface->glyph->bitmap_top, ftface->glyph->advance.x);
 	}
-	update_glyphs = 0;
 }
-void FontRenderer::reload() {
-	load_glyphs();
+uint8_t gcache_entry_t::needs_loaded() { return size > 0 && !glyphs; }
+uint8_t gcache_entry_t::is_free() { return size == 0 && !glyphs; }
+
+
+FontRenderer::FontRenderer() {
+	gcache_len = 0;
+	entries = NULL;
+	cur = NULL;
+	setGlyphCacheSize(5);
+	setTextSize(36);
+}
+FontRenderer::~FontRenderer() {
+	if(cmask & FR_CMASK_FTFACE_VALID)
+		FT_Done_Face(ftface);
+	destroy_tmp_gcache_entry();
+	destroy_glyph_cache();
+}
+int8_t FontRenderer::setFont(char* name) {
+	if(cmask & FR_CMASK_FTFACE_VALID) {
+		FT_Done_Face(ftface);
+		cmask ^= FR_CMASK_FTFACE_VALID;
+	}
+	int8_t out = FT_New_Face(ftlib, name, 0, &ftface);
+	if(out) return out;
+	cmask |= FR_CMASK_UPDATE_GLYPHS;
+	cmask |= FR_CMASK_FTFACE_VALID;
+	return 0;
+}
+uint8_t FontRenderer::getTabSpaces() { return tabWidth; }
+void FontRenderer::setTabSpaces(uint8_t cnt) { tabWidth = cnt; }
+void FontRenderer::setTextSize(uint16_t size) {
+	destroy_tmp_gcache_entry();
+	gcache_entry_t* pos = NULL;
+	// Check cache for existing
+	for(uint8_t i = 0; i < gcache_len; i++)
+		if(entries[i].size == size)
+			pos = &entries[i];
+	if(pos) {
+		pos->uses++;
+		if(pos->uses > 65000)
+			pos->uses = 65000;
+		cur = pos;
+	} else {
+		cur = new gcache_entry_t(size);
+		cur->uses = 1;
+		gcache_entry_t* pos = cache_glyph_entry(cur);
+		if(pos) {
+			free(cur);
+			cur = pos;
+		}
+	}
+}
+void FontRenderer::setProjectionMatrix(glm::mat4 proj) { this->proj = proj; }
+void FontRenderer::setBlending(uint8_t b) {
+	if(b) threshold =  0.5f;
+	else  threshold = -1.0f;
+}
+uint16_t FontRenderer::drawChar(char c, uint16_t x, uint16_t y) { 
+	if(c == '\n') return x;
+	if(c == '\r') return 0;
+	if(c == '\t') return x += tabWidth;
+	char buf[2] = { c, 0 };
+	return drawText(buf, x, y);
+}
+uint16_t FontRenderer::drawText(char* str, uint16_t x, uint16_t y) {
+	uint16_t ox = x;
+	if(str && ft_core_draw_str_start()) {
+		ft_char_text_t* glyphs = cur->glyphs;
+		while(*str) {
+			char c = *str++;
+			if(c == '\r') x = ox;
+			else if(c == '\n') y -= (glyphs[c].h * 1.5);
+			else if(c == '\t') {
+				uint16_t w = tabWidth * glyphs[' '].w;
+				uint8_t ph = x / w + 1;
+				x = ph * w;
+			}
+			else x += ft_core_draw_char(glyphs[c], x, y);
+		}
+		ft_core_draw_str_finish();
+	} return x;
 }
 uint8_t FontRenderer::ft_core_draw_str_start() {
-	if(update_glyphs)
-		load_glyphs();
+	if(!cur) return 0;
+	if(cur->needs_loaded())
+		cur->load(ftface);
 	GL_CALL(glEnable(GL_BLEND))
 	GL_CALL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA))
 	GL_CALL(glActiveTexture(GL_TEXTURE0))
 	font_shader->setUniform4f("textBackColor", br, bg, bb, ba);
 	font_shader->setUniform4f("textForeColor", fr, fg, fb, fa);
 	font_shader->setUniform1f("threshold", this->threshold);
-	font_shader->setUniform1f("textScale", this->scale);
 	font_shader->setUniformMat4x4f("proj", GL_TRUE, glm::value_ptr(this->proj));
 	return 1;
 }
@@ -122,9 +168,10 @@ void FontRenderer::ft_core_draw_str_finish() {
 	font_shader->unbind();
 }
 uint16_t FontRenderer::ft_core_draw_char(ft_char_text_t fct, uint16_t x, uint16_t y) {
-	GLfloat w = fct.w, h = fct.h;
-	GLfloat xp = x + fct.bx;
-	GLfloat yp = y - fct.by;
+	GLfloat w = (GLfloat) fct.w;
+	GLfloat h = (GLfloat) fct.h;
+	GLfloat xp = (GLfloat) (x + fct.bx);
+	GLfloat yp = (GLfloat) (y - fct.by);
 	
 	GLfloat vbuf_dat[24] = {
 		xp,     yp,     0.0, 0.0, 
@@ -145,14 +192,73 @@ uint16_t FontRenderer::ft_core_draw_char(ft_char_text_t fct, uint16_t x, uint16_
 	GL_CALL(glDisableVertexAttribArray(0))
 	return x + fct.adv >> 6;
 }
+void FontRenderer::setGlyphCacheSize(uint8_t size) {
+	gcache_entry_t* new_entries = (gcache_entry_t*) malloc(sizeof(gcache_entry_t) * size);
+	memcpy(new_entries, entries, sizeof(gcache_entry_t) * (size < gcache_len ? size : gcache_len));
+	for(uint8_t i = gcache_len; i < size; i++)
+		new_entries[i] = gcache_entry_t();
+	if(entries) free(entries);
+	entries = new_entries;
+	gcache_len = size;
+}
+void FontRenderer::destroy_tmp_gcache_entry() {
+	if(cur) {
+		for(uint8_t i = 0; i < gcache_len; i++)
+			if(cur->size == entries[i].size)
+				return;
+		cur->unload();
+		free(cur);
+		cur = NULL;
+	}
+}
+void FontRenderer::destroy_glyph_cache() {
+	if(entries){
+		for(uint8_t i = 0; i < gcache_len; i++)
+			entries[i].unload();
+		free(entries);
+		entries = NULL;
+	}
+}
+gcache_entry_t* FontRenderer::cache_glyph_entry(gcache_entry_t* cache) {
+	uint8_t min_pos = 0;
+	uint16_t min_uses = entries[0].uses;
+	for(uint8_t i = 0; i < gcache_len; i++) {
+		gcache_entry_t* cur = &entries[i];
+		if(cur->is_free()) {
+			memcpy(cur, cache, sizeof(gcache_entry_t));
+			return cur;
+		}
+		if(cur->uses < min_uses) {
+			min_pos = i;
+			min_uses = cur->uses;
+		}
+	}
+	if(cache->uses <= min_uses){
+		gcache_entry_t* pos = &entries[min_pos];
+		pos->unload();
+		memcpy(pos, cache, sizeof(gcache_entry_t));
+		return pos;
+	}
+	return 0;
+}
+uint16_t FontRenderer::getHeight() { return size; }
+uint8_t FontRenderer::getGlyphCacheSize() { return gcache_len; }
 void FontRenderer::setBackground(float r, float g, float b, float a) { br = r; bg = g; bb = b; ba = a; }
 void FontRenderer::setForeground(float r, float g, float b, float a) { fr = r; fg = g; fb = b; fa = a; }
+void FontRenderer::printGlyphCache() {
+	printf("Cache: [\n");
+	for(uint8_t i = 0; i < gcache_len; i++) {
+		gcache_entry_t cur = entries[i];
+		const char* str = (i >= gcache_len - 1) ? "\n]\n" : ",";
+		if(cur.is_free()) printf("  %d: Free%s\n", i, str);
+		else printf("  %d: Fontsize %d, used %d times%s\n", i, cur.size, cur.uses, str);
+	}
+}
 
 void destroy_ft_text() {
 	delete font_shader;
 	glDeleteBuffers(1, &font_vbuf_id);
 	glDeleteVertexArrays(1, &font_varr_id);
-	//FT_Done_FreeType(ftlib);
 }
 int8_t init_freetype_shaders() {
 	font_shader = Shader::loadShaderFromFile("res/font.glsl");
@@ -193,7 +299,4 @@ int8_t init_ft_text() {
 	}
 	puts("FreeType initialized, font loaded!");
 	return 0;
-}
-uint16_t FontRenderer::getHeight() {
-	return size * scale;
 }

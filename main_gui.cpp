@@ -24,12 +24,49 @@
 #include "debug.h"
 #include "ft_text.h"
 
+/*     __  __               __
+      / / / /__  ____ _____/ /__  __________                                     *
+     / /_/ / _ \/ __ `/ __  / _ \/ ___/ ___/
+	/ __  /  __/ /_/ / /_/ /  __/ /  (__  )
+   /_/ /_/\___/\__,_/\__,_/\___/_/  /____/
+ ===============================================*/
+//GLFW Callbacks
+void init_glfw_callbacks(GLFWwindow* win);
+void onWindowResize(GLFWwindow*, int w, int h);
+void onMouseMove(GLFWwindow*, double x, double y);
+void onMouseScroll(GLFWwindow*, double x, double y);
+void onMouseButton(GLFWwindow*, int button, int action, int mods);
+void onKeyCallback(GLFWwindow*, int key, int scancode, int action, int mods);
+
+//Random
+int8_t opengl_init();
+int8_t go();
+int8_t loop();
+void draw();
+void render();
+void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t s);
+
+struct view_t {
+	uint8_t julia = 0;
+	cmplx_f min = cmplx_f(-1.0f, -1.0f);
+	cmplx_f max = cmplx_f(1.0f, 1.0f);
+	cmplx_f pos = cmplx_f(0.0f, 0.0f);
+	uint16_t x = 0, y = 0, w = 0, h = 0;
+	uint16_t* dat = NULL;
+	uint8_t render = 0;
+	float zoom = 1;
+	
+	view_t() {};
+	void set_size(uint16_t w, uint16_t h);
+};
+
+
 /*      ________      __          __
        / ____/ /___  / /_  ____ _/ /____
       / / __/ / __ \/ __ \/ __ `/ / ___/
      / /_/ / / /_/ / /_/ / /_/ / (__  )
      \____/_/\____/_.___/\__,_/_/____/
-==========================================*/
+==============================================*/
 GLFWwindow* win;
 Context* ctx;
 FontRenderer font;
@@ -47,19 +84,9 @@ uint16_t render_time_ms = 0;
 float tiny_view_size = 0.25f;
 double deltaTime = 0;
 
-struct view_t {
-	uint8_t julia = 0;
-	cmplx_f min = cmplx_f(-1.0f, -1.0f);
-	cmplx_f max = cmplx_f(1.0f, 1.0f);
-	cmplx_f pos = cmplx_f(0.0f, 0.0f);
-	uint16_t x = 0, y = 0, w = 0, h = 0;
-	uint16_t* dat = NULL;
-	uint8_t render = 0;
-	float zoom = 1;
-
-	view_t() {};
-	void set_size(uint16_t w, uint16_t h);
-};
+#define CMASK_MOUSE_MODE 1
+#define CMASK_SWAP_VIEWS 2
+uint16_t control_mask = CMASK_MOUSE_MODE;
 
 //View pointers
 view_t* mainView = NULL;
@@ -68,34 +95,23 @@ view_t* mandlView = NULL;
 view_t* juliaView = NULL;
 view_t* draw_mouse_onto = NULL;
 
-/*     __  __               __
-      / / / /__  ____ _____/ /__  __________
-     / /_/ / _ \/ __ `/ __  / _ \/ ___/ ___/
-    / __  /  __/ /_/ / /_/ /  __/ /  (__  )
-   /_/ /_/\___/\__,_/\__,_/\___/_/  /____/
-============================================*/
-//GLFW Callbacks
-void onWindowResize(GLFWwindow* win, int w, int h);
-void onMouseMove(GLFWwindow*, double x, double y);
-void onMouseScroll(GLFWwindow*, double x, double y);
-void onMouseButton(GLFWwindow*, int button, int action, int mods);
-
-//Random
-int8_t opengl_init();
-int8_t go();
-int8_t loop();
-void draw();
-void render();
-void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t s);
-
 // Update mask
 uint8_t update = 0;
 #define UPDATE_VP        1
 #define UPDATE_MAIN_VIEW 2
 #define UPDATE_TINY_VIEW 4
 #define UPDATE_ALL 0xFF
+//Screen selection
+uint8_t screen_id = 0;
+#define EXIT_SCREEN_ID 255
+#define HELP_SCREEN_ID 1
+#define VIEW_SCREEN_ID 0
 
 #define RENDER_STEPS 10
+
+Shader* fractal_render_shader = NULL;
+
+void (*render_buf) (uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t d) = imm_render_buf;
 
 void view_t::set_size(uint16_t nw, uint16_t nh) {
 	w = nw; h = nh;
@@ -126,7 +142,7 @@ void draw_view(view_t* v) {
 	}
 	glPushMatrix();
 	glTranslatef(v->x, v->y, 0.0f);
-	imm_render_buf(v->dat, v->w, v->h, ctx->upscale, d);
+	render_buf(v->dat, v->w, v->h, ctx->upscale, d);
 	glPopMatrix();
 }
 void draw_stats() {
@@ -141,10 +157,7 @@ void draw_stats() {
 	snprintf(buf, buflen, "dT: %.3f seconds", deltaTime);
 	font.drawText(buf, 0, pos -= fh);
 }
-void draw() {
-	uint64_t clk = clock();
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	GL_CALL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+void drawMain() {
 	if(mainView) draw_view(mainView);
 	if(tinyView) draw_view(tinyView);
 	if(draw_mouse_onto) {
@@ -162,10 +175,31 @@ void draw() {
 	}
 
 	draw_stats();
-
-	glfwSwapBuffers(win);
-	uint64_t dclk = clock() - clk;
-	deltaTime = dclk / (double)CLOCKS_PER_SEC;
+}
+void draw_str(char* str, char* buf, uint16_t pos) {
+	strcpy(buf, str);
+	font.drawText(buf, 0, pos);
+}
+void drawHelp() {
+	uint8_t buflen = 128;
+	char buf[buflen];
+	uint16_t fh = 0;
+	uint16_t pos = 0;
+	uint16_t h1 = font.getHeight(), h2 = (h1 * 2) / 3;
+	font.setTextSize(h1); fh = font.getHeight();
+	draw_str("---== Mouse controls ==---", buf, pos += fh);
+	font.setTextSize(h2); fh = font.getHeight();
+	draw_str("\tMove mouse to set view", buf, pos += fh);
+	font.setTextSize(h1); fh = font.getHeight();
+	draw_str("---== Key controls ==---", buf, pos += fh);
+	font.setTextSize(h2); fh = font.getHeight();
+	draw_str("m\tToggle between mouse/keyboard mode", buf, pos += fh);
+	draw_str("j\tToggle between julia/mandelbrot views", buf, pos += fh);
+	draw_str("ws\tIncrement/Decrement imaginary value of C", buf, pos += fh);
+	draw_str("ad\tIncrement/Decrement real value of C", buf, pos += fh);
+	draw_str("g\tShow next gradient", buf, pos += fh);
+	draw_str("esc\tExit", buf, pos += fh);
+	font.setTextSize(h1);
 }
 
 int8_t loop() {
@@ -212,8 +246,18 @@ int8_t loop() {
 			update ^= UPDATE_TINY_VIEW;
 			if(tinyView) tinyView->render = RENDER_STEPS;
 		}
-		draw();
+		uint64_t clk = clock();
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		GL_CALL(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+		switch(screen_id) {
+			case VIEW_SCREEN_ID: drawMain(); break;
+			case HELP_SCREEN_ID: drawHelp(); break;
+			case EXIT_SCREEN_ID: return 0;   break;
+		}
+		glfwSwapBuffers(win);
 		glfwPollEvents();
+		uint64_t dclk = clock() - clk;
+		deltaTime = dclk / (double)CLOCKS_PER_SEC;
 	}
 	return -1;
 }
@@ -235,7 +279,6 @@ int8_t go() {
 	
 	font.setFont("res/font.ttf");
 	font.setTextSize(winW / 25);
-	font.setTextScale(1.0f);
 	
 	update = UPDATE_ALL;
 	int8_t out = loop();
@@ -245,7 +288,7 @@ int8_t go() {
 	return out;
 }
 void core_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t d) {
-
+	
 }
 void imm_render_buf_nds(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u) {
 	glBegin(GL_POINTS);
@@ -299,29 +342,6 @@ void imm_render_buf(uint16_t* buf, uint16_t w, uint16_t h, uint8_t u, uint8_t d)
 	if(d > 0) imm_render_buf_ds(buf, w, h, u, d);
 	else imm_render_buf_nds(buf, w, h, u);
 }
-/*       ______                 __
-        / ____/   _____  ____  / /______
-       / __/ | | / / _ \/ __ \/ __/ ___/
-      / /___ | |/ /  __/ / / / /_(__  )
-     /_____/ |___/\___/_/ /_/\__/____/
-============================================*/
-void onWindowResize(GLFWwindow* win, int w, int h) {
-	update |= UPDATE_ALL;
-	newW = w; newH = h;
-}
-void onMouseMove(GLFWwindow*, double x, double y) {
-	mouseX = round(x); mouseY = round(y);
-	float lx = x / winW, ly = y / winH;
-	view_t* ctx = mainView;
-	current_pos.real = ctx->min.real + (ctx->max.real - ctx->min.real) * lx;
-	current_pos.imag = ctx->min.imag + (ctx->max.imag - ctx->min.imag) * ly;
-	if(juliaView) {
-		juliaView->pos = current_pos;
-		update |= juliaView == mainView ? UPDATE_MAIN_VIEW : UPDATE_TINY_VIEW;
-	}
-}
-void onMouseScroll(GLFWwindow*, double x, double y) {}
-void onMouseButton(GLFWwindow*, int button, int action, int mods) {}
 
 /*     ____      _ __  _       ___             __  _
       /  _/___  (_) /_(_)___ _/ (_)___  ____ _/ /_(_)___  ____
@@ -361,10 +381,7 @@ int8_t opengl_init() {
 		puts("Failed to initialize GLEW!");
 		return 1;
 	}
-	glfwSetWindowSizeCallback(win, onWindowResize);
-	glfwSetScrollCallback(win, onMouseScroll);
-	glfwSetMouseButtonCallback(win, onMouseButton);
-	glfwSetCursorPosCallback(win, onMouseMove);
+	init_glfw_callbacks(win);
 	glfwSwapInterval(vsync);
 
 	puts("OpenGL initialized!");
@@ -376,4 +393,42 @@ void gui_parse(uint16_t i, uint16_t cnt, char** args) {
 void print_gui_help() {
 	//puts("\t--fps/-f <fps>: Force a specific framerate");
 	//puts("\t--no-vsync: Disables Vsync");
+}
+/*        ______                 __
+         / ____/   _____  ____  / /______
+        / __/ | | / / _ \/ __ \/ __/ ___/
+       / /___ | |/ /  __/ / / / /_(__  )
+      /_____/ |___/\___/_/ /_/\__/____/
+ ==============================================*/
+void init_glfw_callbacks(GLFWwindow* win) {
+	glfwSetKeyCallback(win, onKeyCallback);
+	glfwSetWindowSizeCallback(win, onWindowResize);
+	glfwSetScrollCallback(win, onMouseScroll);
+	glfwSetMouseButtonCallback(win, onMouseButton);
+	glfwSetCursorPosCallback(win, onMouseMove);
+}
+void onWindowResize(GLFWwindow* win, int w, int h) {
+	update |= UPDATE_ALL;
+	newW = w; newH = h;
+}
+void onMouseMove(GLFWwindow*, double x, double y) {
+	mouseX = round(x); mouseY = round(y);
+	float lx = x / winW, ly = y / winH;
+	view_t* ctx = mainView;
+	current_pos.real = ctx->min.real + (ctx->max.real - ctx->min.real) * lx;
+	current_pos.imag = ctx->min.imag + (ctx->max.imag - ctx->min.imag) * ly;
+	if(juliaView) {
+		juliaView->pos = current_pos;
+		update |= juliaView == mainView ? UPDATE_MAIN_VIEW : UPDATE_TINY_VIEW;
+	}
+}
+void onMouseScroll(GLFWwindow*, double x, double y) {}
+void onMouseButton(GLFWwindow*, int button, int action, int mods) {}
+void onKeyCallback(GLFWwindow*, int key, int scancode, int action, int mods) {
+	if(action == GLFW_PRESS) {
+		if(key == GLFW_KEY_H)
+			screen_id = screen_id == HELP_SCREEN_ID ? VIEW_SCREEN_ID : HELP_SCREEN_ID;
+		if(key == GLFW_KEY_ESCAPE)
+			screen_id = EXIT_SCREEN_ID;
+	}
 }

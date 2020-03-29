@@ -251,6 +251,10 @@ void ShaderSource::parse(ShaderType defaultType){
 				curSourceElem.type = curType;
 				curSourceElem.start = endln;
 			}
+			if(len > 9 && strncmp("#include ", startln, 8) == 0){
+				char* name = startln + 9;
+				puts(name);
+			}
 			startln = endln;
 		}
 	}
