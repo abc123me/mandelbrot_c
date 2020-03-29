@@ -37,7 +37,6 @@ class FontRenderer {
 private:
 	FT_Face ftface;
 	float threshold = 0.5f;
-	uint16_t size = 36;
 	uint8_t tabWidth = 4;
 	float br = 0.0f, bg = 0.0f, bb = 0.0f, ba = 0.0f;
 	float fr = 1.0f, fg = 1.0f, fb = 1.0f, fa = 1.0f; 

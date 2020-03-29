@@ -74,7 +74,7 @@ FontRenderer::FontRenderer() {
 	gcache_len = 0;
 	entries = NULL;
 	cur = NULL;
-	setGlyphCacheSize(5);
+	setGlyphCacheSize(10);
 	setTextSize(36);
 }
 FontRenderer::~FontRenderer() {
@@ -241,7 +241,7 @@ gcache_entry_t* FontRenderer::cache_glyph_entry(gcache_entry_t* cache) {
 	}
 	return 0;
 }
-uint16_t FontRenderer::getHeight() { return size; }
+uint16_t FontRenderer::getHeight() { return cur ? cur->size : 0; }
 uint8_t FontRenderer::getGlyphCacheSize() { return gcache_len; }
 void FontRenderer::setBackground(float r, float g, float b, float a) { br = r; bg = g; bb = b; ba = a; }
 void FontRenderer::setForeground(float r, float g, float b, float a) { fr = r; fg = g; fb = b; fa = a; }
