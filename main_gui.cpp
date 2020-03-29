@@ -81,6 +81,7 @@ cmplx_f mb_max(1.0f, 1.0f);
 cmplx_f ju_min(-1.0f, -1.0f);
 cmplx_f ju_max(1.0f, 1.0f);
 uint16_t render_time_ms = 0;
+uint16_t font_size = 36;
 float tiny_view_size = 0.25f;
 double deltaTime = 0;
 
@@ -148,6 +149,7 @@ void draw_view(view_t* v) {
 void draw_stats() {
 	uint8_t buflen = 128;
 	char buf[buflen];
+	font.setTextSize(font_size);
 	uint16_t fh = font.getHeight();
 	uint16_t pos = winH;
 	strcpy(buf, "Press h for help");
@@ -185,7 +187,7 @@ void drawHelp() {
 	char buf[buflen];
 	uint16_t fh = 0;
 	uint16_t pos = 0;
-	uint16_t h1 = font.getHeight(), h2 = (h1 * 2) / 3;
+	uint16_t h1 = font_size, h2 = (h1 * 2) / 3;
 	font.setTextSize(h1); fh = font.getHeight();
 	draw_str("---== Mouse controls ==---", buf, pos += fh);
 	font.setTextSize(h2); fh = font.getHeight();
@@ -195,11 +197,10 @@ void drawHelp() {
 	font.setTextSize(h2); fh = font.getHeight();
 	draw_str("m\tToggle between mouse/keyboard mode", buf, pos += fh);
 	draw_str("j\tToggle between julia/mandelbrot views", buf, pos += fh);
-	draw_str("ws\tIncrement/Decrement imaginary value of C", buf, pos += fh);
-	draw_str("ad\tIncrement/Decrement real value of C", buf, pos += fh);
-	draw_str("g\tShow next gradient", buf, pos += fh);
-	draw_str("esc\tExit", buf, pos += fh);
-	font.setTextSize(h1);
+	draw_str("w/s\tModify imaginary value of C", buf, pos += fh);
+	draw_str("a/d\tModify real value of C", buf, pos += fh);
+	draw_str("g\tChange selected gradient", buf, pos += fh);
+	draw_str("ESC\tExit", buf, pos += fh);
 }
 
 int8_t loop() {
@@ -237,6 +238,7 @@ int8_t loop() {
 			glViewport(0, 0, winW, winH);
 			glTranslatef(-1, 1, 0);
 			glScalef(2 / (float) winW, -2 / (float) winH, 1);
+			font_size = winH / 30;
 		}
 		if(update & UPDATE_MAIN_VIEW) {
 			update ^= UPDATE_MAIN_VIEW;
@@ -278,7 +280,6 @@ int8_t go() {
 	juliaView->pos = ctx->julia_pos;
 	
 	font.setFont("res/font.ttf");
-	font.setTextSize(winW / 25);
 	
 	update = UPDATE_ALL;
 	int8_t out = loop();
